@@ -158,6 +158,7 @@ def _init_state():
         "edit_title":    "Compliance Officer | Analyste Sécurité Financière (LCB-FT)",
         "edit_location": "Île-de-France, France",
         "edit_email":    "mackenson.cineus@email.com",
+        "edit_phone":    "+33 6 XX XX XX XX",
         "edit_linkedin": "linkedin.com/in/mackenson-cineus",
         "edit_summary":  (
             "Professionnel de la conformité financière et des marchés, avec une double expérience "
@@ -631,140 +632,315 @@ def _page_frame(canvas, doc):
 # ─────────────────────────────────────────────────────────────────────────────
 # CV — 1 PAGE BICOLONNE FINANCE
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CV — 1 PAGE · FORMAT FINANCE EUROPÉEN STANDARD
+# Mise en page entièrement dessinée sur canvas pour un contrôle parfait
+# ─────────────────────────────────────────────────────────────────────────────
+
 def generate_cv_pdf(poste="", entreprise="", secteur="", contexte="") -> bytes:
-    buf = io.BytesIO()
-    W, H = A4
-    SB = 4.45 * cm  # sidebar width
-
-    # Pull live data
+    """
+    CV 1 page A4 — style finance européen standard (modèle Delubac/HiPay).
+    Police Times-Roman, titres gras soulignés, puces bullet, mise en page sobre.
+    Entête : Nom, téléphone, email, LinkedIn, adresse, photo placeholder.
+    """
     import streamlit as _st
-    P         = _st.session_state
-    name      = P.get("edit_name",     "Mackenson CINÉUS")
-    title_cv  = P.get("edit_title",    "Compliance Officer | LCB-FT")
-    location  = P.get("edit_location", "Île-de-France, France")
-    linkedin  = P.get("edit_linkedin", "linkedin.com/in/mackenson-cineus")
-    summary   = P.get("edit_summary",  "")
-    exps_raw  = P.get("edit_exp",      [])
-    edu_raw   = P.get("edit_edu",      [])
-    skills_d  = P.get("edit_skills",   {"LCB-FT / AML": 95})
-    dists     = P.get("edit_distinctions", [])
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.lib.pagesizes import A4
 
-    def draw_page(canvas, doc):
-        canvas.saveState()
-        # Sidebar
-        canvas.setFillColor(NAVY_C);  canvas.rect(0, 0, SB, H, fill=1, stroke=0)
-        canvas.setFillColor(GOLD_C);  canvas.rect(SB, 0, 0.16*cm, H, fill=1, stroke=0)
-        # Header bar
-        canvas.setFillColor(NAVY_C);  canvas.rect(SB, H-3.0*cm, W-SB, 3.0*cm, fill=1, stroke=0)
-        canvas.setFillColor(GOLD_C);  canvas.rect(SB, H-3.0*cm, W-SB, 0.09*cm, fill=1, stroke=0)
-        # Name & title
-        canvas.setFillColor(rl_colors.white); canvas.setFont("Helvetica-Bold", 18)
-        canvas.drawString(SB+0.55*cm, H-1.45*cm, name)
-        canvas.setFillColor(GOLD_C); canvas.setFont("Helvetica", 8)
-        t_line = title_cv + (f"  ·  {poste}" if poste else "")
-        canvas.drawString(SB+0.55*cm, H-1.95*cm, t_line)
-        canvas.setFillColor(rl_colors.HexColor('#BBBBBB')); canvas.setFont("Helvetica", 6.8)
-        canvas.drawString(SB+0.55*cm, H-2.5*cm,
-            f"{location}  ·  {linkedin}  ·  Podcast INCLUTECH  ·  @mackenson_cineus")
+    buf = io.BytesIO()
+    W, H = A4  # 595.28 × 841.89 pts
 
-        def sb_sec(label, y):
-            canvas.setFillColor(GOLD_C); canvas.setFont("Helvetica-Bold", 5.8)
-            canvas.drawString(0.28*cm, y, label.upper())
-            canvas.rect(0.28*cm, y-0.09*cm, SB-0.55*cm, 0.045*cm, fill=1, stroke=0)
+    # ── PULL LIVE DATA ────────────────────────────────────────────────
+    ss       = _st.session_state
+    name     = ss.get("edit_name",     "Mackenson CINÉUS")
+    cv_title = ss.get("edit_title",    "Compliance Officer | Analyste LCB-FT")
+    location = ss.get("edit_location", "Île-de-France, France")
+    linkedin = ss.get("edit_linkedin", "linkedin.com/in/mackenson-cineus")
+    email    = ss.get("edit_email",    "mackenson.cineus@email.com")
+    phone    = ss.get("edit_phone",    "+33 6 XX XX XX XX")
+    exps     = ss.get("edit_exp",      [])
+    edus     = ss.get("edit_edu",      [])
+    skills_d = ss.get("edit_skills",   {})
+    dists    = ss.get("edit_distinctions", [])
 
-        def sb_txt(text, y, color='#CDD8E8', size=6.3, bold=False):
-            if not text: return
-            canvas.setFillColor(rl_colors.HexColor(color))
-            canvas.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-            # truncate if too wide
-            max_w = SB - 0.6*cm
-            while canvas.stringWidth(text, "Helvetica-Bold" if bold else "Helvetica", size) > max_w and len(text) > 5:
-                text = text[:-2]
-            canvas.drawString(0.38*cm, y, text)
+    # ── CONSTANTES DE MISE EN PAGE ────────────────────────────────────
+    ML = 51    # marge gauche  (≈ 1.8 cm)
+    MR = 51    # marge droite
+    MT = 55    # marge haut
+    MB = 36    # marge bas
+    TW = W - ML - MR   # largeur texte ≈ 493 pts
 
-        # COMPÉTENCES
-        y = H - 3.5*cm
-        sb_sec("Compétences", y); y -= 0.4*cm
-        for sk in list(skills_d.keys())[:10]:
-            sb_txt(sk, y); y -= 9.5
+    PHOTO_SIZE = 68    # taille photo carré (pts)
+    PHOTO_X    = W - MR - PHOTO_SIZE
+    PHOTO_Y    = H - MT - PHOTO_SIZE
 
-        # LANGUES
-        y -= 0.25*cm; sb_sec("Langues", y); y -= 0.4*cm
-        for lang, lvl in [("Créole haïtien","Natif"),("Français","C2"),("Anglais","B2/C1")]:
-            sb_txt(lang, y, bold=True); y -= 8.5
-            sb_txt(lvl, y, color='#C9A84C', size=6); y -= 11
+    # ── COULEURS ──────────────────────────────────────────────────────
+    BLACK  = (0.0,  0.0,  0.0)
+    NAVY   = (0.05, 0.11, 0.20)
+    GRAY   = (0.35, 0.35, 0.35)
+    LGRAY  = (0.60, 0.60, 0.60)
+    WHITE  = (1.0,  1.0,  1.0)
+    LINK   = (0.10, 0.30, 0.65)   # bleu hyperlien
 
-        # CONTACT
-        y -= 0.25*cm; sb_sec("Contact", y); y -= 0.4*cm
-        for line in [location, linkedin, "", "Podcast: INCLUTECH", "Spotify & Apple", "", "@mackenson_cineus"]:
-            sb_txt(line, y); y -= 8.5
+    # ── CANVAS ───────────────────────────────────────────────────────
+    c = rl_canvas.Canvas(buf, pagesize=A4)
 
-        # DISTINCTIONS
-        y -= 0.25*cm; sb_sec("Distinctions", y); y -= 0.4*cm
-        for icon, ttl, _ in dists[:5]:
-            sb_txt(f"{icon} {ttl}", y); y -= 8.5
+    # helpers
+    def setf(*rgb): c.setFillColorRGB(*rgb)
+    def sets(*rgb): c.setStrokeColorRGB(*rgb)
+    def f(name, sz): c.setFont(name, sz)
+    def tx(x, y, s, align='left'):
+        if not s: return
+        if align == 'right':   c.drawRightString(x, y, str(s))
+        elif align == 'center': c.drawCentredString(x, y, str(s))
+        else:                   c.drawString(x, y, str(s))
 
-        canvas.restoreState()
+    def sw(s, fname, fsize):
+        return stringWidth(str(s), fname, fsize)
 
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-        leftMargin=SB+0.55*cm, rightMargin=1.0*cm,
-        topMargin=3.2*cm, bottomMargin=0.85*cm)
+    def wrap(txt, x, y, max_w, fname, fsize, lh, color=BLACK, indent=0):
+        """Draw wrapped paragraph, return new y."""
+        c.setFillColorRGB(*color)
+        c.setFont(fname, fsize)
+        words = str(txt).split()
+        line = ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if sw(test, fname, fsize) <= max_w - indent:
+                line = test
+            else:
+                if line:
+                    c.drawString(x + indent, y, line)
+                    y -= lh
+                    indent = 0   # indent only first line
+                line = w
+        if line:
+            c.drawString(x + indent, y, line)
+            y -= lh
+        return y
 
-    def s(n, **kw):
-        d = dict(fontName='Helvetica', fontSize=8.2, textColor=GRAY_D_C, leading=11.5, spaceAfter=1.5)
-        d.update(kw); return ParagraphStyle(n, **d)
+    def section_title(label, y):
+        """Section header : NOM EN GRAS + ligne de soulignement."""
+        f("Times-Bold", 11)
+        setf(*BLACK)
+        label_upper = label.upper()
+        c.drawString(ML, y, label_upper)
+        lw = sw(label_upper, "Times-Bold", 11)
+        # Trait plein sous toute la largeur
+        sets(*BLACK)
+        c.setLineWidth(0.8)
+        c.line(ML, y - 2, ML + TW, y - 2)
+        return y - 12
 
-    story = []
+    def bullet_item(txt, y, x=ML, w=None, fsize=9.5, lh=11.5):
+        """Puce bullet • + texte wrappé, retourne y final."""
+        if w is None: w = TW
+        # bullet
+        f("Times-Roman", fsize)
+        setf(*BLACK)
+        c.drawString(x + 8, y, "•")
+        # texte (avec indent pour alinéa)
+        y = wrap(txt, x + 20, y, w - 20, "Times-Roman", fsize, lh)
+        return y
 
-    # PROFIL
-    story.extend(_sec("Profil", size=6.8))
-    story.append(Paragraph(
-        f"Compliance Officer & Analyste LCB-FT — expérience en fintech de paiement "
-        f"(<b>HiPay</b>) et banque privée (<b>Delubac</b>). "
-        f"<b>MBA Trading &amp; Marchés Financiers</b> (ESLSCA Paris) · <b>Licence BFA</b> (Univ. du Mans). "
-        f"<b>1er Prix Hackathon Fintech Générations 2023</b> (France FinTech / SG). "
-        f"Podcast <b>INCLUTECH</b> · Board Member Erasmus Expertise · Haïti / France.",
-        s('p', fontSize=7.6, leading=10.5, alignment=TA_JUSTIFY, spaceAfter=0)))
+    # ════════════════════════════════════════════════════════════════
+    # EN-TÊTE
+    # ════════════════════════════════════════════════════════════════
+    y = H - MT
 
-    # EXPÉRIENCES
-    story.extend(_sec("Expériences Professionnelles", size=6.8))
-    for exp in exps_raw:
-        t = Table([[
-            Paragraph(f"<b>{exp['role']}</b>",
-                      s('r', fontSize=8.2, textColor=NAVY_C, spaceAfter=0)),
-            Paragraph(f"<i>{exp['period']}</i>",
-                      s('d', fontSize=7.2, textColor=GRAY_L_C, alignment=TA_RIGHT, spaceAfter=0)),
-        ]], colWidths=['67%','33%'])
-        t.setStyle(TableStyle([
-            ('TOPPADDING',(0,0),(-1,-1),4), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(t)
-        story.append(Paragraph(f"<font color='#C9A84C'>{exp['org']}</font>",
-                                s('o', fontSize=7.2, spaceAfter=1)))
-        for b in exp['bullets']:
-            story.append(Paragraph(f"▸  {b}",
-                                   s('b', fontSize=7.2, leading=10, leftIndent=5, spaceAfter=1)))
+    # ── PHOTO PLACEHOLDER ────────────────────────────────────────
+    sets(*LGRAY); setf(0.92, 0.92, 0.92)
+    c.setLineWidth(0.5)
+    c.rect(PHOTO_X, PHOTO_Y, PHOTO_SIZE, PHOTO_SIZE, fill=1, stroke=1)
+    # Croix pour indiquer photo
+    sets(*LGRAY); c.setLineWidth(0.4)
+    c.line(PHOTO_X+2, PHOTO_Y + PHOTO_SIZE - 2, PHOTO_X + PHOTO_SIZE - 2, PHOTO_Y + 2)
+    c.line(PHOTO_X+2, PHOTO_Y + 2, PHOTO_X + PHOTO_SIZE - 2, PHOTO_Y + PHOTO_SIZE - 2)
+    # Label
+    f("Helvetica", 6.5); setf(*LGRAY)
+    c.drawCentredString(PHOTO_X + PHOTO_SIZE/2, PHOTO_Y + PHOTO_SIZE/2 - 3, "PHOTO")
+    c.drawCentredString(PHOTO_X + PHOTO_SIZE/2, PHOTO_Y + PHOTO_SIZE/2 - 12, "PROFESSIONNELLE")
 
-    # FORMATION
-    story.extend(_sec("Formation", size=6.8))
-    for e in edu_raw:
-        t = Table([[
-            Paragraph(f"<b>{e['deg']}</b>  <font color='#999'>· {e['school']}</font>",
-                      s('fd', fontSize=7.8, textColor=NAVY_C, spaceAfter=0)),
-            Paragraph(f"<i>{e['yr']}</i>",
-                      s('fy', fontSize=7.2, textColor=GRAY_L_C, alignment=TA_RIGHT, spaceAfter=0)),
-        ]], colWidths=['72%','28%'])
-        t.setStyle(TableStyle([
-            ('TOPPADDING',(0,0),(-1,-1),3), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-        story.append(t)
-        story.append(Paragraph(e['det'], s('det', fontSize=7.2, textColor=GRAY_M_C, spaceAfter=0)))
+    # ── NOM ──────────────────────────────────────────────────────
+    # Nom en très grand — police Times-Bold
+    name_parts = name.strip().split()
+    # Affiche tout en grand
+    f("Times-Bold", 22)
+    setf(*NAVY)
+    c.drawString(ML, y, name.upper())
+    y -= 26
 
-    doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
-    buf.seek(0); return buf.read()
+    # ── TITRE / POSTE VISÉ ────────────────────────────────────────
+    target = poste if poste else cv_title
+    f("Times-Italic", 11); setf(*NAVY)
+    c.drawString(ML, y, target)
+    y -= 16
 
+    # ── LIGNE DE SÉPARATION ───────────────────────────────────────
+    sets(*NAVY); c.setLineWidth(1.2)
+    c.line(ML, y, ML + TW, y)
+    y -= 10
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LETTRE DE MOTIVATION — 1 PAGE
-# ─────────────────────────────────────────────────────────────────────────────
+    # ── COORDONNÉES (2 colonnes) ──────────────────────────────────
+    col2_x = ML + TW/2 + 10
+
+    # Colonne gauche
+    f("Times-Roman", 9); setf(*BLACK)
+    c.drawString(ML, y, f"📍  {location}")
+    c.drawString(ML, y - 12, f"✉   {email}")
+
+    # Colonne droite
+    c.drawString(col2_x, y, f"📞  {phone}")
+    # LinkedIn en bleu souligné
+    setf(*LINK)
+    lk_text = f"🔗  {linkedin}"
+    c.drawString(col2_x, y - 12, lk_text)
+    setf(*BLACK)
+
+    y -= 26
+
+    # Deuxième ligne coordonnées
+    f("Times-Roman", 9); setf(*GRAY)
+    c.drawString(ML, y, "🎙  Podcast INCLUTECH (Spotify & Apple Podcasts)  ·  @mackenson_cineus")
+    y -= 18
+
+    # Trait de séparation bas en-tête
+    sets(*NAVY); c.setLineWidth(0.6)
+    c.line(ML, y, ML + TW, y)
+    y -= 14
+
+    # ════════════════════════════════════════════════════════════════
+    # PROFIL / ACCROCHE
+    # ════════════════════════════════════════════════════════════════
+    y = section_title("Profil", y)
+    accroche = (
+        "Compliance Officer & Analyste LCB-FT avec expérience en fintech de paiement "
+        "(HiPay SAS, agréé ACPR) et banque privée (Banque Delubac & Cie). Expert AML/FT, "
+        "KYC/KYB, KYS, déclarations Tracfin et veille réglementaire (ACPR, GAFI, CMF). "
+        "Titulaire d'un MBA Finance de Marché (ESLSCA Paris). Lauréat 1er Prix Hackathon "
+        "Fintech Générations 2023 — France FinTech / Société Générale. Trilingue : "
+        "français (natif), anglais (courant), créole haïtien (natif)."
+    )
+    y = wrap(accroche, ML, y, TW, "Times-Roman", 9.5, 12)
+    y -= 10
+
+    # ════════════════════════════════════════════════════════════════
+    # EXPÉRIENCES PROFESSIONNELLES
+    # ════════════════════════════════════════════════════════════════
+    y = section_title("Expériences Professionnelles", y)
+
+    for exp in exps[:5]:
+        if y < MB + 60: break
+
+        role  = exp.get("role", "")
+        org   = exp.get("org",  "")
+        period = exp.get("period", "")
+        bullets = exp.get("bullets", [])
+
+        # Ligne 1 : Org | Rôle (gauche) + Localisation (droite)
+        # On split org pour avoir la ville si présente
+        org_parts = org.split("·")
+        org_name  = org_parts[0].strip()
+        org_loc   = org_parts[-1].strip() if len(org_parts) > 1 else location.split(",")[0].strip()
+
+        f("Times-Bold", 9.8); setf(*BLACK)
+        c.drawString(ML, y, f"{org_name}  |  {role}")
+        f("Times-Italic", 9); setf(*GRAY)
+        c.drawRightString(ML + TW, y, org_loc)
+        y -= 12
+
+        # Ligne 2 : Période (droite, italique)
+        f("Times-Italic", 9); setf(*GRAY)
+        c.drawRightString(ML + TW, y, period)
+        y -= 12
+
+        # Puces missions
+        for b in bullets[:4]:
+            if y < MB + 40: break
+            y = bullet_item(b, y, fsize=9.3, lh=11)
+
+        y -= 5   # espace entre expériences
+
+    # ════════════════════════════════════════════════════════════════
+    # FORMATIONS
+    # ════════════════════════════════════════════════════════════════
+    if y > MB + 80:
+        y = section_title("Formations", y)
+
+        for edu in edus:
+            if y < MB + 50: break
+
+            deg    = edu.get("deg",    "")
+            school = edu.get("school", "")
+            yr     = edu.get("yr",     "")
+            det    = edu.get("det",    "")
+
+            # Ligne diplôme | école (gauche) + ville + dates (droite)
+            school_parts = school.split("·")
+            school_name  = school_parts[0].strip()
+            school_loc   = school_parts[-1].strip() if len(school_parts) > 1 else "France"
+
+            f("Times-Bold", 9.8); setf(*BLACK)
+            c.drawString(ML, y, f"{school_name}  |  {deg}")
+            f("Times-Italic", 9); setf(*GRAY)
+            c.drawRightString(ML + TW, y, school_loc)
+            y -= 12
+            f("Times-Italic", 9); setf(*GRAY)
+            c.drawRightString(ML + TW, y, yr)
+
+            # Cours principaux soulignés
+            if det:
+                f("Times-Roman", 9.2); setf(*BLACK)
+                label_cp = "Cours principaux : "
+                c.drawString(ML + 8, y, label_cp)
+                lcp_w = sw(label_cp, "Times-Roman", 9.2)
+                # underline
+                c.setLineWidth(0.3); sets(*BLACK)
+                c.line(ML + 8, y - 1, ML + 8 + lcp_w, y - 1)
+                y = wrap(det, ML + 8 + lcp_w, y, TW - 8 - lcp_w,
+                          "Times-Roman", 9.2, 11, indent=0)
+            y -= 6
+
+    # ════════════════════════════════════════════════════════════════
+    # CERTIFICATIONS, COMPÉTENCES, INTÉRÊTS & ACTIVITÉS
+    # ════════════════════════════════════════════════════════════════
+    if y > MB + 20:
+        y = section_title("Certifications, Compétences, Intérêts & Activités", y)
+
+        skills_list = list(skills_d.keys())
+        tech_str = " – ".join(skills_list[:6]) if skills_list else "LCB-FT, KYC/KYB, AML, Tracfin"
+
+        lines_cert = [
+            ("Certifications en préparation", ": CFA Level 1 – AMF – CAMS (en cours)"),
+            ("Certifications détenues",        ": MBA Trading & Marchés Financiers (ESLSCA) – Licence BFA – AMF"),
+            ("Compétences informatiques",       ": Excel avancé – Python – Bloomberg – VBA – Pack Office – Looker"),
+            ("Langues",                         ": Français (Natif) – Créole haïtien (Natif) – Anglais (Courant B2/C1)"),
+            ("Intérêts",                        ": Sécurité financière – Fintech & RegTech – Trading NASDAQ – Veille éco"),
+            ("Récompenses",                     f": Lauréat du Hackathon « Fintech Générations » 2023 — France FinTech / Société Générale (Projet Victoria, financement DPE). Représentant Haïti au Hult Prize 2018 (Projet WEISS)."),
+        ]
+
+        for label, val in lines_cert:
+            if y < MB: break
+            f("Times-Bold", 9.3); setf(*BLACK)
+            c.drawString(ML + 8, y, label)
+            lw = sw(label, "Times-Bold", 9.3)
+            f("Times-Roman", 9.3)
+            y = wrap(val, ML + 8 + lw, y, TW - 8 - lw, "Times-Roman", 9.3, 11, indent=0)
+
+    # ════════════════════════════════════════════════════════════════
+    # FOOTER DISCRET
+    # ════════════════════════════════════════════════════════════════
+    sets(*LGRAY); c.setLineWidth(0.3)
+    c.line(ML, MB - 8, ML + TW, MB - 8)
+    f("Helvetica", 6.5); setf(*LGRAY)
+    c.drawString(ML, MB - 18, f"{name}  ·  {location}  ·  {email}  ·  {linkedin}")
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
 def generate_lettre_pdf(poste="", entreprise="", secteur="", style_lm="",
                          contexte="", ai_text="") -> bytes:
     buf = io.BytesIO()
@@ -1684,8 +1860,12 @@ elif page == "✏️ Édition du Profil":
         with c2:
             st.text_input("Titre professionnel", key="edit_title")
             st.text_input("Email", key="edit_email")
+        c3, c4 = st.columns(2)
+        with c3:
+            st.text_input("Téléphone", key="edit_phone", placeholder="+33 6 XX XX XX XX")
+        with c4:
+            st.text_input("LinkedIn (sans https://)", key="edit_linkedin")
 
-        st.text_input("LinkedIn (sans https://)", key="edit_linkedin")
         st.text_area("Résumé / Accroche professionnelle",
                      key="edit_summary", height=120)
 

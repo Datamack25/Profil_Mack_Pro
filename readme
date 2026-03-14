@@ -1,0 +1,123 @@
+# 📊 Mackenson Cineus — Finance Professional Portfolio
+
+> Application Streamlit interactive présentant le parcours professionnel de Mackenson Cineus,
+> avec visualisations avancées et génération de documents IA (CV, lettres de motivation).
+
+---
+
+## ✨ Fonctionnalités
+
+- **🏠 Profil & Parcours** — Timeline interactive, KPIs de carrière, barres de compétences
+- **📊 Visualisations** — Radar de compétences, courbe de progression, répartitions thématiques
+- **🌍 Carte Géographique** — Parcours international Haïti → France → Europe sur carte interactive
+- **📄 Générateur de Documents** — CV et lettres de motivation personnalisés via l'API Claude AI
+
+---
+
+## 🚀 Déploiement sur Streamlit Cloud
+
+### 1. Forker ce dépôt
+
+```bash
+git clone https://github.com/votre-username/mackenson-cineus-portfolio
+cd mackenson-cineus-portfolio
+```
+
+### 2. Déployer sur [share.streamlit.io](https://share.streamlit.io)
+
+1. Connectez-vous avec votre compte GitHub
+2. Cliquez **New app**
+3. Sélectionnez ce dépôt
+4. Fichier principal : `app.py`
+5. **Ajouter le secret API** dans *Settings > Secrets* :
+
+```toml
+# .streamlit/secrets.toml  (NE PAS committer ce fichier)
+ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+> **Important** : le fichier `secrets.toml` est déjà dans le `.gitignore`.
+> Sur Streamlit Cloud, ajoutez la clé via l'interface *Secrets* directement.
+
+---
+
+## 💻 Lancement en local
+
+```bash
+# Installer les dépendances
+pip install -r requirements.txt
+
+# Créer le fichier secrets local
+mkdir -p .streamlit
+echo '[secrets]\nANTHROPIC_API_KEY = "votre-clé"' > .streamlit/secrets.toml
+
+# Lancer l'application
+streamlit run app.py
+```
+
+---
+
+## 📁 Structure du projet
+
+```
+mackenson-cineus-portfolio/
+├── app.py                  # Application principale
+├── requirements.txt        # Dépendances Python
+├── README.md               # Ce fichier
+├── .gitignore              # Exclut secrets et caches
+└── .streamlit/
+    └── secrets.toml        # Clé API (non committée)
+```
+
+---
+
+## 🛠️ Technologies
+
+| Technologie | Usage |
+|-------------|-------|
+| **Streamlit** | Framework web interactif |
+| **Plotly** | Graphiques et carte interactive |
+| **Pandas** | Manipulation des données |
+| **Anthropic Claude** | Génération de CV/LM IA |
+
+---
+
+## 📄 Pages de l'application
+
+### Page 1 — Profil & Parcours
+- Bannière hero avec badges thématiques
+- 4 KPI cards (années d'expérience, pays, diplômes, prix)
+- Timeline filtrée par catégorie
+- Barres de compétences et langues
+
+### Page 2 — Visualisations
+- Radar chart des 8 compétences clés
+- Courbe de progression de carrière (2014→2023)
+- Donut chart répartition axes du parcours
+- Bar chart répartition géographique
+- Bar chart horizontal maîtrise des langues
+
+### Page 3 — Carte Géographique
+- Carte mondiale interactive (Plotly Scattergeo)
+- Marqueurs avec taille proportionnelle à l'importance
+- Lignes de connexion entre les étapes
+- Fiches résumé sous la carte
+
+### Page 4 — Générateur de Documents
+- Choix : CV professionnel ou lettre de motivation
+- Paramètres : poste, entreprise, secteur, style
+- Génération via API Claude (claude-sonnet-4)
+- Téléchargement du document généré
+
+---
+
+## 👤 À propos
+
+**Mackenson Cineus** — Analyste Sécurité Financière (LCB-FT)  
+Banque Delubac & Cie | Paris, France  
+MBA Trading & Marchés Financiers — ESLSCA Paris  
+Licence Banque-Finance-Assurance — Université du Mans  
+
+---
+
+*Développé avec Streamlit & Claude AI*

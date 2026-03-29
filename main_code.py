@@ -884,180 +884,353 @@ def generate_cv_pdf(poste="", entreprise="", secteur="", contexte="", lang="fr")
 # ═══════════════════════════════════════════════════════════════════════════════
 # CV WORD — .docx export (FR or EN)
 # ═══════════════════════════════════════════════════════════════════════════════
+
 def generate_cv_docx(poste="", lang="fr") -> bytes:
+    """
+    CV DOCX matching EXACTLY the uploaded model:
+    - Header table: Name 18pt bold centered, title, contacts
+    - Section headers: 10pt bold, bottom border, uppercase
+    - Body text: 9.5pt
+    - Bullets: List Bullet style
+    - Org+date pattern: bold org | italic loc (tab right), date right-aligned
+    """
     from docx import Document
     from docx.shared import Pt, RGBColor, Inches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
-    import copy
 
-    d = _get_cv_data(lang)
-    target = poste if poste else d["title"]
+    import streamlit as _st
+    ss = _st.session_state
+    is_fr = (lang == "fr")
+
+    # Live data from session_state
+    name     = ss.get("edit_name",    "Mackenson CINÉUS")
+    phone    = ss.get("edit_phone",   "+33 6 XX XX XX XX")
+    email    = ss.get("edit_email",   "mackenson.cineus@email.com")
+    linkedin = ss.get("edit_linkedin","linkedin.com/in/mackenson-cineus")
+    title_cv = poste if poste else ss.get("edit_title","Analyste LCB-FT | Compliance Officer")
+    memoir   = ss.get("edit_memoir_title","Impacts of ESG Factors and Regulatory Constraints on Portfolio Management")
+    certifs  = ss.get("edit_certifs", ["AMF","CAMS (Sanctions & Embargos)","CFA Level I (en cours)"])
+    tech     = ss.get("edit_tech",    "Excel avancé – VBA – Python – Pack Microsoft Office – Looker – Jura")
+    interests= ss.get("edit_interests","Sécurité financière – Création de modèles financiers – Programmation")
+    dists    = ss.get("edit_distinctions",[])
+    exps     = ss.get("edit_exp",    [])
+    edus     = ss.get("edit_edu",    [])
+
+    profil_fr = ss.get("edit_summary_fr",
+        "Analyste LCB-FT en alternance chez Banque Delubac & Cie avec expertise en surveillance des "
+        "transactions sur clientèle corporate, CIB, asset management et banque privée. Expérience en "
+        "conformité Fintech (HiPay SAS) axée sur les risques pays GAFI, KYC/PPE/SOE et juridictions à "
+        "haut risque. MBA 2 Finance de Marché (ESLSCA Paris, parcours anglais). Certifié AMF, CAMS "
+        "(Sanctions & Embargos), candidat CFA Level I.")
+    profil_en = ss.get("edit_summary_en",
+        "Work-study AML/CFT Analyst at Banque Delubac & Cie with expertise in transaction monitoring for "
+        "Corporate, CIB, Asset Management and Private Banking clients. Proven experience in Fintech "
+        "Compliance (HiPay SAS) focusing on FATF risk countries, KYC/PEP/SOE, and high-risk jurisdictions. "
+        "MBA in Market Finance at ESLSCA Paris (English Track). AMF Certified, CAMS (Sanctions & Embargoes), "
+        "CFA Level I Candidate.")
+
     doc = Document()
 
-    # Margins
-    for sec_d in doc.sections:
-        sec_d.top_margin    = Inches(0.55)
-        sec_d.bottom_margin = Inches(0.4)
-        sec_d.left_margin   = Inches(0.65)
-        sec_d.right_margin  = Inches(0.65)
+    # Margins (match model: 0.75in L/R, 0.6in T/B)
+    for sec in doc.sections:
+        sec.top_margin    = Inches(0.6)
+        sec.bottom_margin = Inches(0.6)
+        sec.left_margin   = Inches(0.75)
+        sec.right_margin  = Inches(0.75)
 
-    def add_para(text="", bold=False, italic=False, size=9.5, color=None,
-                 align=WD_ALIGN_PARAGRAPH.LEFT, space_before=0, space_after=1):
-        p = doc.add_paragraph()
-        p.alignment = align
-        p.paragraph_format.space_before = Pt(space_before)
-        p.paragraph_format.space_after  = Pt(space_after)
-        if text:
-            run = p.add_run(text)
-            run.bold   = bold
-            run.italic = italic
-            run.font.size = Pt(size)
-            if color: run.font.color.rgb = RGBColor(*color)
-        return p
-
-    def add_section(label, space_before=6):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(space_before)
-        p.paragraph_format.space_after  = Pt(1)
-        run = p.add_run(label.upper())
-        run.bold = True; run.font.size = Pt(10)
-        run.font.color.rgb = RGBColor(0,0,0)
-        # Bottom border (underline section)
+    # ── HELPERS ────────────────────────────────────────────────────────────
+    def bottom_border(p):
         pPr = p._p.get_or_add_pPr()
         pBdr = OxmlElement('w:pBdr')
-        bottom = OxmlElement('w:bottom')
-        bottom.set(qn('w:val'), 'single')
-        bottom.set(qn('w:sz'), '8')
-        bottom.set(qn('w:space'), '1')
-        bottom.set(qn('w:color'), '000000')
-        pBdr.append(bottom); pPr.append(pBdr)
+        b = OxmlElement('w:bottom')
+        b.set(qn('w:val'),'single'); b.set(qn('w:sz'),'12')
+        b.set(qn('w:space'),'1');    b.set(qn('w:color'),'000000')
+        pBdr.append(b); pPr.append(pBdr)
 
-    def add_bullet(text, size=9.5):
+    def sec_hdr(label, sb=8):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(sb)
+        p.paragraph_format.space_after  = Pt(1)
+        r = p.add_run(label); r.bold = True
+        r.font.size = Pt(10); r.font.color.rgb = RGBColor(0,0,0)
+        bottom_border(p); return p
+
+    def org_line(org_text, loc_text):
+        """Bold org | italic loc with right-tab."""
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(5)
+        p.paragraph_format.space_after  = Pt(0)
+        r1 = p.add_run(org_text); r1.bold = True; r1.font.size = Pt(10)
+        r2 = p.add_run("\t" + loc_text)
+        r2.italic = True; r2.font.size = Pt(9.5)
+        r2.font.color.rgb = RGBColor(40,40,40)
+        # Right tab at 9360 twips (6.5in printable width)
+        pPr = p._p.get_or_add_pPr()
+        tabs = OxmlElement('w:tabs')
+        tab  = OxmlElement('w:tab')
+        tab.set(qn('w:val'),'right'); tab.set(qn('w:pos'),'9360')
+        tabs.append(tab); pPr.append(tabs)
+
+    def date_line(date_text):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after  = Pt(1)
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        r = p.add_run(date_text); r.italic = True
+        r.font.size = Pt(9.5); r.font.color.rgb = RGBColor(40,40,40)
+
+    def bullet(text, size=9.5):
         p = doc.add_paragraph(style='List Bullet')
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after  = Pt(1)
-        run = p.add_run(text)
-        run.font.size = Pt(size)
-        run.font.color.rgb = RGBColor(50,50,50)
+        r = p.add_run(text); r.font.size = Pt(size)
+        r.font.color.rgb = RGBColor(0,0,0)
 
-    # NAME
-    add_para(d["name"].upper(), bold=True, size=18, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
-    add_para(target, italic=True, size=10, color=(50,50,50), align=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
-    add_para(f"{d['loc']}  ·  {d['phone']}  ·  {d['email']}", size=9,
-             color=(80,80,80), align=WD_ALIGN_PARAGRAPH.CENTER, space_after=1)
-    add_para(f"{d['lk']}  ·  Podcast INCLUTECH", size=9,
-             color=(80,80,80), align=WD_ALIGN_PARAGRAPH.CENTER, space_after=4)
+    def cours_line(label_bold, cours_text, size=9.5):
+        p = doc.add_paragraph(style='List Paragraph')
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after  = Pt(1)
+        r1 = p.add_run(label_bold); r1.bold = True; r1.font.size = Pt(size)
+        r2 = p.add_run(cours_text); r2.font.size = Pt(size)
+        r2.font.color.rgb = RGBColor(0,0,0)
 
-    # PROFIL
-    add_section("Profil" if lang=="fr" else "Profile")
-    profil = (d.get("edit_summary_fr","") if lang=="fr" else d.get("edit_summary_en",""))
-    if not profil:
-        profil = (
-            "Analyste LCB-FT en alternance chez Banque Delubac & Cie. "
-            "Expérience HiPay SAS (fintech ACPR). MBA Finance de Marché ESLSCA Paris. "
-            "AMF, CAMS, CFA Level I candidat."
-        )
-    add_para(profil, size=9.5, color=(30,30,30), space_after=3)
+    def certif_line(label_bold, value, size=9.5):
+        p = doc.add_paragraph(style='List Paragraph')
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after  = Pt(1)
+        r1 = p.add_run(label_bold); r1.bold = True; r1.font.size = Pt(size)
+        r2 = p.add_run(value);      r2.font.size = Pt(size)
+        r2.font.color.rgb = RGBColor(0,0,0)
 
-    # EXPÉRIENCES
-    add_section("Expériences Professionnelles" if lang=="fr" else "Professional Experience")
+    # ── HEADER TABLE ────────────────────────────────────────────────────────
+    tbl = doc.add_table(rows=1, cols=1)
+    # Remove all borders
+    tblPr = tbl._tbl.find(qn('w:tblPr'))
+    if tblPr is None:
+        tblPr = OxmlElement('w:tblPr'); tbl._tbl.insert(0, tblPr)
+    tblB = OxmlElement('w:tblBorders')
+    for side in ['top','left','bottom','right','insideH','insideV']:
+        el = OxmlElement(f'w:{side}'); el.set(qn('w:val'),'none'); tblB.append(el)
+    tblPr.append(tblB)
+
+    cell = tbl.cell(0, 0)
+    cell.paragraphs[0].clear()
+
+    # Name — 18pt bold centered black
+    pn = cell.paragraphs[0]
+    pn.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pn.paragraph_format.space_before = Pt(0); pn.paragraph_format.space_after = Pt(2)
+    rn = pn.add_run(name.upper())
+    rn.bold = True; rn.font.size = Pt(18); rn.font.color.rgb = RGBColor(0,0,0)
+
+    # Title
+    pt = cell.add_paragraph(); pt.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pt.paragraph_format.space_before = Pt(0); pt.paragraph_format.space_after = Pt(2)
+    rt = pt.add_run(title_cv)
+    rt.font.size = Pt(10.5); rt.font.color.rgb = RGBColor(40,40,40)
+
+    # Contacts
+    pc = cell.add_paragraph(); pc.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pc.paragraph_format.space_before = Pt(0); pc.paragraph_format.space_after = Pt(4)
+    rc = pc.add_run(f"{phone}  |  {linkedin}  |  {email}")
+    rc.font.size = Pt(10); rc.font.color.rgb = RGBColor(40,40,40)
+
+    # Spacing after header
+    sp = doc.add_paragraph()
+    sp.paragraph_format.space_before = Pt(0); sp.paragraph_format.space_after = Pt(2)
+
+    # ── PROFIL ──────────────────────────────────────────────────────────────
+    sec_hdr("PROFIL" if is_fr else "PROFILE", sb=2)
+    p_pr = doc.add_paragraph()
+    p_pr.paragraph_format.space_before = Pt(4); p_pr.paragraph_format.space_after = Pt(1)
+    rp = p_pr.add_run(profil_fr if is_fr else profil_en)
+    rp.font.size = Pt(9.5); rp.font.color.rgb = RGBColor(0,0,0)
+
+    # ── EXPÉRIENCES ─────────────────────────────────────────────────────────
+    sec_hdr("EXPÉRIENCES PROFESSIONNELLES" if is_fr else "PROFESSIONAL EXPERIENCE")
+
+    # Filter professional exps
     PRO = {"Banque","Fintech","Compétition","ONG",""}
-    pro_exps = [e for e in d["exps"]
+    pro_exps = [e for e in exps
                 if e.get("org_type","") in PRO
                 and "ACTIVEH" not in e.get("org","")
-                and "ANGAJMAN" not in e.get("org","")][:4]
+                and "ANGAJMAN" not in e.get("org","")]
+
     for exp in pro_exps:
-        org_parts = exp.get("org","").split("·")
+        org_raw = exp.get("org","")
+        org_parts = org_raw.split("·")
         org_name  = org_parts[0].strip()
         org_loc   = org_parts[-1].strip() if len(org_parts)>1 else "France"
-        role   = exp.get("role_en"  if lang=="en" else "role",  "")
-        period = exp.get("period_en" if lang=="en" else "period","")
-        bullets= exp.get("bullets_en" if lang=="en" else "bullets_fr",
-                         exp.get("bullets_fr",[]))
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(4)
-        p.paragraph_format.space_after  = Pt(0)
-        r1 = p.add_run(f"{org_name}  |  {role}")
-        r1.bold = True; r1.font.size = Pt(9.5)
-        r1.font.color.rgb = RGBColor(0,0,0)
-        r2 = p.add_run(f"                                              {org_loc}  ·  {period}")
-        r2.font.size = Pt(9); r2.italic = True
-        r2.font.color.rgb = RGBColor(100,100,100)
-        for b in bullets[:5]:
-            add_bullet(b)
+        role  = exp.get("role_en" if not is_fr else "role", exp.get("role",""))
+        period= exp.get("period_en" if not is_fr else "period", exp.get("period",""))
+        buls  = exp.get("bullets_en" if not is_fr else "bullets_fr",
+                        exp.get("bullets_fr", exp.get("bullets",[])))
+        # Format org line: "ORG NAME | ROLE" then loc
+        org_line(f"{org_name} | {role}", org_loc)
+        date_line(period)
+        for b in buls[:5]:
+            bullet(b)
 
-    # MÉMOIRE
-    add_section("Mémoire de Fin d'Études" if lang=="fr" else "Master's Thesis")
-    add_para(f"{'Titre' if lang=='fr' else 'Title'} : « {d['memoir']} »",
-             bold=True, size=9.5, color=(0,0,0), space_after=1)
-    add_para("80 pages · " + ("Rédigé en anglais" if lang=="fr" else "Written in English") +
-             " · MBA 2 Finance de Marché, ESLSCA Paris", size=9, color=(80,80,80), space_after=3)
-
-    # FORMATION
-    add_section("Formations" if lang=="fr" else "Education")
+    # ── FORMATIONS ──────────────────────────────────────────────────────────
+    sec_hdr("FORMATIONS" if is_fr else "EDUCATION")
     EXCL = ["INAGHEI","Haïti","Haiti"]
-    edus_f = [e for e in d["edus"] if not any(x in e.get("school","") for x in EXCL)][:2]
+    edus_f = [e for e in edus if not any(x in e.get("school","") for x in EXCL)]
+
     for edu in edus_f:
         s_parts = edu.get("school","").split("·")
         sname = s_parts[0].strip()
         sloc  = s_parts[-1].strip() if len(s_parts)>1 else "France"
-        deg = edu.get("deg_en" if lang=="en" else "deg","")
-        yr  = edu.get("yr_en"  if lang=="en" else "yr","")
-        det = edu.get("det_en" if lang=="en" else "det","")
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(4); p.paragraph_format.space_after = Pt(0)
-        r = p.add_run(f"{sname}  |  {deg}")
-        r.bold = True; r.font.size = Pt(9.5)
-        p2 = doc.add_paragraph()
-        p2.paragraph_format.space_before = Pt(0); p2.paragraph_format.space_after = Pt(0)
-        r2 = p2.add_run(f"  {yr}  ·  {sloc}")
-        r2.italic = True; r2.font.size = Pt(9); r2.font.color.rgb = RGBColor(100,100,100)
-        cl = ("Cours principaux : " if lang=="fr" else "Main courses: ")
-        p3 = doc.add_paragraph()
-        p3.paragraph_format.space_before = Pt(1); p3.paragraph_format.space_after = Pt(2)
-        rb = p3.add_run(cl)
-        rb.bold = True; rb.font.size = Pt(9.5)
-        rdet = p3.add_run(det)
-        rdet.font.size = Pt(9.5); rdet.font.color.rgb = RGBColor(60,60,60)
+        deg   = edu.get("deg_en" if not is_fr else "deg", edu.get("deg",""))
+        yr    = edu.get("yr_en"  if not is_fr else "yr",  edu.get("yr",""))
+        det   = edu.get("det_en" if not is_fr else "det", edu.get("det",""))
+        org_line(f"{sname} — {deg}", sloc)
+        date_line(yr)
+        label = "Cours principaux\u00a0: " if is_fr else "Main courses: "
+        cours_line(label, det)
 
-    # CERTIF / COMPÉTENCES
-    cert_lbl = ("Certifications, Compétences, Langues & Distinctions"
-                if lang=="fr" else "Certifications, Skills, Languages & Awards")
-    add_section(cert_lbl)
-    certif_str = " – ".join(d["certifs"]) if d["certifs"] else "AMF – CAMS – CFA Level I"
-    dist_str = " | ".join(f"{ic} {t}" for ic,t,_ in d["dists"][:3])
+    # ── MÉMOIRE ─────────────────────────────────────────────────────────────
+    sec_hdr("MÉMOIRE DE FIN D'ÉTUDES" if is_fr else "MASTER'S THESIS")
+    pm = doc.add_paragraph()
+    pm.paragraph_format.space_before = Pt(4); pm.paragraph_format.space_after = Pt(1)
+    lbl_m = "Titre\u00a0: " if is_fr else "Title: "
+    rm1 = pm.add_run(lbl_m); rm1.bold = True; rm1.font.size = Pt(9.5)
+    memoir_desc = (
+        f"« {memoir} » — 80 pages · " +
+        ("Rédigé en anglais · MBA 2 Finance de Marché · ESLSCA Paris" if is_fr else
+         "Written in English · MBA in Market Finance · ESLSCA Paris")
+    )
+    rm2 = pm.add_run(memoir_desc); rm2.italic = True; rm2.font.size = Pt(9.5)
+    rm2.font.color.rgb = RGBColor(0,0,0)
+
+    # ── CERTIFICATIONS ───────────────────────────────────────────────────────
+    cert_lbl_hdr = ("CERTIFICATIONS, COMPÉTENCES, LANGUES & DISTINCTIONS" if is_fr
+                    else "CERTIFICATIONS, SKILLS, LANGUAGES & AWARDS")
+    sec_hdr(cert_lbl_hdr)
+
+    certif_str = " – ".join(certifs) if certifs else "AMF – CAMS – CFA Level I"
+    dist_str = " | ".join(f"{ic} {t}" for ic,t,_ in dists[:4]) if dists else \
+               "Hackathon Fintech Générations 2023 | Hult Prize 2018 | Hackathon Unleash"
+
     rows_fr = [
-        ("Certifications",        certif_str),
-        ("Outils & Informatique", d["tech"]),
-        ("Langues",               "Français (Natif) – Anglais (Avancé – C1)"),
-        ("Intérêts",              d["ints"]),
-        ("Distinctions",          dist_str),
+        ("Certifications\u00a0: ", certif_str),
+        ("Outils & Informatique\u00a0: ", tech),
+        ("Langues\u00a0: ", "Français (Natif) – Anglais (Avancé – C1)"),
+        ("Intérêts\u00a0: ", interests),
+        ("Distinctions\u00a0: ", dist_str),
     ]
     rows_en = [
-        ("Certifications", certif_str),
-        ("Tools & IT",     d["tech"]),
-        ("Languages",      "French (Native) – English (Advanced – C1)"),
-        ("Interests",      d["ints"]),
-        ("Awards",         dist_str),
+        ("Certifications: ", certif_str),
+        ("Tools & IT: ", tech),
+        ("Languages: ", "English (Advanced C1) – French (Native) – Haitian Creole (Native)"),
+        ("Interests: ", interests),
+        ("Awards: ", dist_str),
     ]
-    for lbl_r, val in (rows_fr if lang=="fr" else rows_en):
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(0); p.paragraph_format.space_after = Pt(1)
-        rb = p.add_run(lbl_r + " : ")
-        rb.bold = True; rb.font.size = Pt(9.5)
-        rv = p.add_run(val)
-        rv.font.size = Pt(9.5); rv.font.color.rgb = RGBColor(60,60,60)
+    for lbl, val in (rows_fr if is_fr else rows_en):
+        certif_line(lbl, val)
 
-    buf = io.BytesIO()
-    doc.save(buf); buf.seek(0)
+    buf = io.BytesIO(); doc.save(buf); buf.seek(0)
     return buf.read()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LETTRE DE MOTIVATION PDF — 3 PARAGRAPHES, 1 PAGE PLEINE
+# JOB SEARCH — REAL SCRAPER using Claude API web_search
 # ═══════════════════════════════════════════════════════════════════════════════
+def _search_real_jobs(api_key: str, keywords: list, location: str = "France") -> list:
+    """
+    Use Claude API with web_search tool to get REAL current CDI job listings
+    in financial security / AML compliance.
+    Returns list of dicts: {title, company, location, url, date, description}
+    """
+    import requests as _req, json
+
+    if not api_key:
+        return []
+
+    # Build a comprehensive search query
+    kw_str = " OR ".join(f'"{k}"' for k in keywords[:5])
+    prompt = f"""Search the internet RIGHT NOW for the 30 most recent CDI job offers in France and Luxembourg 
+related to financial security, AML/CFT compliance, LCB-FT analysis, and credit analysis.
+
+Search on: LinkedIn Jobs, France Travail, Indeed France, Welcome to the Jungle, APEC, Jobs.lu
+
+Keywords to search: {', '.join(keywords)}
+Location: {location}
+Contract type: CDI only
+Sort by: Most recent first
+
+For each job found, provide:
+1. Job title
+2. Company name  
+3. Location
+4. Direct application URL
+5. Publication date (if available)
+6. Brief description (1-2 sentences)
+
+Format each job as JSON. Return a JSON array of job objects with keys:
+title, company, location, url, date, description
+
+Search NOW and return ONLY real current offers, not examples."""
+
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "web-search-2025-03-05",
+        }
+        body = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 4000,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        r = _req.post("https://api.anthropic.com/v1/messages",
+                      headers=headers, json=body, timeout=90)
+        data = r.json()
+
+        # Extract text from response
+        full_text = ""
+        for block in data.get("content", []):
+            if block.get("type") == "text":
+                full_text += block.get("text", "")
+
+        # Try to parse JSON from response
+        jobs = []
+        if "[" in full_text and "]" in full_text:
+            start = full_text.find("[")
+            end   = full_text.rfind("]") + 1
+            try:
+                jobs = json.loads(full_text[start:end])
+            except:
+                pass
+
+        # If JSON parsing failed, parse structured text
+        if not jobs and full_text:
+            lines = full_text.split("\n")
+            current = {}
+            for line in lines:
+                line = line.strip()
+                if not line: continue
+                for key_fr, key_en in [("titre","title"),("entreprise","company"),
+                                        ("localisation","location"),("url","url"),
+                                        ("date","date"),("description","description")]:
+                    for k in [key_fr, key_en, key_fr.capitalize(), key_en.capitalize()]:
+                        if line.lower().startswith(k+":") or line.lower().startswith(f'"{k}"'):
+                            val = line.split(":",1)[-1].strip().strip('"').strip(",")
+                            current[key_en] = val
+                            break
+                if len(current) >= 4:
+                    jobs.append(current); current = {}
+
+        return jobs[:30]
+
+    except Exception as e:
+        return [{"title": f"Erreur: {str(e)}", "company": "", "location": "",
+                 "url": "", "date": "", "description": ""}]
+
+
 def generate_lettre_pdf(poste="", entreprise="", secteur="", style_lm="",
                          contexte="", ai_text="", lang="fr") -> bytes:
     from reportlab.pdfgen import canvas as rl_canvas
@@ -1072,7 +1245,7 @@ def generate_lettre_pdf(poste="", entreprise="", secteur="", style_lm="",
     ML, MR, MT, MB = 50, 50, 42, 30
     TW = W - ML - MR
     BLK = (0,0,0); DGR=(0.20,0.20,0.20); MGR=(0.40,0.40,0.40); LGR=(0.62,0.62,0.62); VGR=(0.82,0.82,0.82)
-    FS = 9.8; LH = 13.8
+    FS = 12; LH = 16.5
 
     c = rl_canvas.Canvas(buf, pagesize=A4)
     def f(fn,fs): c.setFont(fn,fs)
@@ -2184,82 +2357,323 @@ elif page == "📥  Générateur de Documents":
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE 9 — OFFRES CDI TEMPS RÉEL
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAGE 9 — PLATEFORME DE RECHERCHE D'EMPLOI (SCRAPING TEMPS RÉEL)
+# ═══════════════════════════════════════════════════════════════════════════════
 elif page == "🔎  Offres CDI (Temps Réel)":
-    st.markdown('<p class="section-header">🔎 Offres CDI — Sécurité Financière · AML · Compliance</p>', unsafe_allow_html=True)
-    st.markdown("""<p style='opacity:0.75;margin-bottom:16px;line-height:1.7;'>
-    Offres <b style='color:#C9A84C;'>CDI uniquement</b> en sécurité financière, conformité AML/LCB-FT
-    et analyse crédit — France & Luxembourg. Liens directs pour postuler.
-    </p>""", unsafe_allow_html=True)
 
-    c_search, c_refresh = st.columns([4, 1])
-    with c_search:
-        search_kw = st.text_input("🔍 Filtrer", placeholder="LCB-FT, AML, Luxembourg, crédit…",
-                                   label_visibility="collapsed", key="job_search")
-    with c_refresh:
-        refresh = st.button("🔄 Actualiser", use_container_width=True, key="job_refresh")
+    st.markdown('<p class="section-header">🔎 Plateforme de Recherche d\'Emploi — Sécurité Financière</p>',
+                unsafe_allow_html=True)
 
-    if refresh or "job_boards" not in st.session_state:
-        st.session_state["job_boards"] = _scrape_jobs()
+    # ── INTRO ────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style='background:var(--navy-mid);border:1px solid rgba(201,168,76,0.25);
+                border-radius:12px;padding:16px 20px;margin-bottom:20px;'>
+      <div style='font-size:0.95rem;font-weight:600;color:#C9A84C;margin-bottom:8px;'>
+        🔴 Recherche en temps réel · CDI uniquement · France & Luxembourg
+      </div>
+      <div style='font-size:0.83rem;opacity:0.8;line-height:1.6;'>
+        Utilisez votre <b>clé API Anthropic</b> (barre latérale) pour lancer une recherche réelle
+        sur LinkedIn, France Travail, Indeed, Welcome to the Jungle, APEC, Jobs.lu — scraping live.
+        <br>Sans clé API → accès direct aux plateformes via liens pré-configurés.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    boards = st.session_state.get("job_boards", _scrape_jobs())
+    api_key = st.session_state.get("anthropic_api_key", "").strip()
 
-    # Count displayed
-    total = 0
-    st.markdown("<br>", unsafe_allow_html=True)
+    # ── SEARCH CONTROLS ──────────────────────────────────────────────────────
+    st.markdown("### ⚙️ Paramètres de recherche")
 
-    for board in boards:
-        board_queries = board["queries"]
-        if search_kw:
-            board_queries = [q for q in board_queries
-                             if search_kw.lower() in (q["title"]+
-                                " ".join(q.get("keywords",[]))).lower()]
-        if not board_queries: continue
+    col1, col2, col3 = st.columns([3, 2, 1])
+    with col1:
+        custom_kw = st.text_input(
+            "🔍 Mots-clés supplémentaires",
+            placeholder="ex: CAMS, Actimize, Trade Finance, TRACFIN...",
+            key="job_custom_kw"
+        )
+    with col2:
+        job_location = st.selectbox(
+            "📍 Localisation",
+            ["France", "Paris / Île-de-France", "Luxembourg", "France + Luxembourg",
+             "Île-de-France", "Lyon", "Remote / Télétravail"],
+            key="job_location"
+        )
+    with col3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        launch_search = st.button("🚀 Lancer la recherche", use_container_width=True, key="launch_search")
+
+    # Default keyword categories
+    st.markdown("### 🏷️ Catégories de recherche")
+
+    kw_categories = {
+        "🏦 LCB-FT / AML": ["analyste LCB-FT", "compliance AML", "lutte blanchiment", 
+                              "sécurité financière CDI", "AML analyst", "financial crime"],
+        "🔍 KYC / Due Diligence": ["KYC analyst CDI", "due diligence compliance",
+                                    "chargé conformité KYC", "KYB analyst"],
+        "⚖️ Conformité Réglementaire": ["compliance officer CDI", "chargé conformité bancaire",
+                                          "conformité réglementaire", "regulatory compliance"],
+        "💳 Fintech / PSP": ["compliance fintech CDI", "chargé conformité PSP",
+                              "fintech AML", "établissement paiement conformité"],
+        "📊 Analyse Crédit": ["analyste crédit CDI Paris", "credit analyst compliance",
+                              "analyste risques financiers CDI"],
+        "🌍 Luxembourg AML": ["AML officer Luxembourg CDI", "compliance Luxembourg",
+                               "financial crime Luxembourg", "KYC analyst Luxembourg"],
+        "🏛️ Asset Management": ["compliance asset management", "analyste conformité gestion actifs",
+                                  "risk compliance fund management"],
+        "🔒 Sanctions / Embargos": ["sanctions analyst CDI", "analyste sanctions OFAC",
+                                     "screening sanctions compliance", "embargoes analyst"],
+    }
+
+    selected_cats = []
+    cols_kw = st.columns(4)
+    cat_names = list(kw_categories.keys())
+    for i, cat in enumerate(cat_names):
+        with cols_kw[i % 4]:
+            if st.checkbox(cat, value=(i < 4), key=f"cat_{i}"):
+                selected_cats.append(cat)
+
+    # Build final keywords list
+    all_keywords = []
+    for cat in selected_cats:
+        all_keywords.extend(kw_categories[cat])
+    if custom_kw.strip():
+        all_keywords.extend([kw.strip() for kw in custom_kw.split(",")])
+    all_keywords = list(dict.fromkeys(all_keywords))  # deduplicate
+
+    st.markdown(f"""
+    <div style='background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.15);
+                border-radius:8px;padding:10px 14px;margin:8px 0 16px;font-size:0.8rem;'>
+      <b style='color:#C9A84C;'>🏷️ Mots-clés actifs ({len(all_keywords)}) :</b>
+      {' · '.join(f'<span style="opacity:0.8;">{k}</span>' for k in all_keywords[:20])}
+      {'...' if len(all_keywords) > 20 else ''}
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── REAL-TIME SEARCH ─────────────────────────────────────────────────────
+    if launch_search:
+        if not api_key:
+            st.warning("⚠️ **Clé API Anthropic requise** pour le scraping en temps réel. Renseignez-la dans la barre latérale gauche.")
+            st.info("💡 Sans clé API, utilisez les liens directs ci-dessous.")
+        else:
+            with st.spinner("🔍 Scraping en cours — LinkedIn, Indeed, France Travail, APEC, Jobs.lu... (30-60 secondes)"):
+                jobs = _search_real_jobs(api_key, all_keywords, job_location)
+                st.session_state["scraped_jobs"] = jobs
+                st.session_state["scraped_location"] = job_location
+                st.session_state["scraped_kw"] = all_keywords[:10]
+
+    # ── DISPLAY SCRAPED RESULTS ───────────────────────────────────────────────
+    if st.session_state.get("scraped_jobs"):
+        jobs = st.session_state["scraped_jobs"]
+        loc_used = st.session_state.get("scraped_location", "")
+        kw_used  = st.session_state.get("scraped_kw", [])
 
         st.markdown(f"""
-        <div style='font-size:0.85rem;font-weight:600;color:#C9A84C;
-                    border-bottom:1px solid rgba(201,168,76,0.2);padding:6px 0 4px;
-                    margin-bottom:8px;margin-top:12px;'>
-          {board['icon']} {board['source']}
-        </div>""", unsafe_allow_html=True)
+        <div style='background:rgba(46,204,113,0.1);border:1px solid rgba(46,204,113,0.3);
+                    border-radius:10px;padding:12px 16px;margin-bottom:16px;'>
+          <b style='color:#2ECC71;'>✅ {len(jobs)} offres trouvées</b>
+          <span style='font-size:0.82rem;opacity:0.7;'> — {loc_used} — mots-clés: {", ".join(kw_used[:5])}</span>
+          <span style='float:right;font-size:0.75rem;opacity:0.5;'>Scraping temps réel</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Filter bar
+        filter_txt = st.text_input("🔍 Filtrer les résultats", placeholder="ex: Luxembourg, CAMS, Fintech...",
+                                    key="filter_results", label_visibility="collapsed")
 
         c1, c2 = st.columns(2)
-        for i, q in enumerate(board_queries):
-            total += 1
-            kw_html = "".join(
-                f'<span style="background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.25);'
-                f'border-radius:3px;padding:1px 7px;font-size:0.68rem;color:#E8C97A;margin:1px 2px 0 0;'
-                f'display:inline-block;">{k}</span>'
-                for k in q.get("keywords",[]))
+        display_jobs = [j for j in jobs if not filter_txt or
+                       filter_txt.lower() in (j.get("title","") + j.get("company","") +
+                                               j.get("location","") + j.get("description","")).lower()]
+
+        for i, job in enumerate(display_jobs):
+            title   = job.get("title","Poste non précisé")
+            company = job.get("company","")
+            loc_j   = job.get("location","")
+            url_j   = job.get("url","")
+            date_j  = job.get("date","")
+            desc    = job.get("description","")
+
             with (c1 if i%2==0 else c2):
+                btn_html = (f'<a href="{url_j}" target="_blank" style="display:inline-block;'
+                            f'background:linear-gradient(135deg,#C9A84C,#E8C97A);color:#0D1B2A;'
+                            f'padding:5px 14px;border-radius:5px;font-size:0.76rem;font-weight:700;'
+                            f'text-decoration:none;margin-top:6px;">Postuler →</a>'
+                            if url_j else "")
                 st.markdown(f"""
                 <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.07);
                             border-left:3px solid #C9A84C;border-radius:0 8px 8px 0;
                             padding:12px 14px;margin-bottom:10px;">
-                  <div style="font-size:0.88rem;font-weight:600;color:#F5F0E8;margin-bottom:5px;">
-                    {q['title']}
+                  <div style="font-size:0.88rem;font-weight:600;color:#F5F0E8;margin-bottom:3px;">
+                    {title}
                   </div>
-                  <div style="margin-bottom:7px;">{kw_html}</div>
-                  <a href="{q['url']}" target="_blank"
-                     style="background:linear-gradient(135deg,#C9A84C,#E8C97A);color:#0D1B2A;
-                            padding:4px 12px;border-radius:5px;font-size:0.76rem;
-                            font-weight:700;text-decoration:none;display:inline-block;">
-                    Postuler →
+                  <div style="font-size:0.78rem;color:#C9A84C;margin-bottom:2px;">
+                    {company}{f' · {loc_j}' if loc_j else ''}{f' · {date_j}' if date_j else ''}
+                  </div>
+                  <div style="font-size:0.78rem;opacity:0.7;line-height:1.4;margin-bottom:4px;">
+                    {desc[:120] + '...' if len(desc)>120 else desc}
+                  </div>
+                  {btn_html}
+                </div>""", unsafe_allow_html=True)
+
+        # Export results
+        if display_jobs:
+            import json
+            st.download_button(
+                "📥 Exporter les offres (.json)",
+                data=json.dumps(display_jobs, ensure_ascii=False, indent=2),
+                file_name="offres_emploi_compliance.json",
+                mime="application/json",
+                key="export_jobs"
+            )
+
+    st.divider()
+
+    # ── STATIC QUICK ACCESS (always visible) ─────────────────────────────────
+    st.markdown("### 🔗 Accès Direct aux Plateformes — Recherches pré-configurées CDI")
+    st.markdown("<p style='opacity:0.7;font-size:0.83rem;'>Liens directs avec requêtes optimisées pour votre profil LCB-FT/AML.</p>", unsafe_allow_html=True)
+
+    platforms = [
+        {
+            "name": "LinkedIn Jobs",
+            "icon": "💼",
+            "color": "#0A66C2",
+            "links": [
+                ("Analyste LCB-FT — CDI Île-de-France",
+                 "https://www.linkedin.com/jobs/search/?keywords=analyste+LCB-FT+AML&location=%C3%8Ele-de-France&f_JT=F&sortBy=DD&f_TPR=r604800"),
+                ("Compliance Officer AML — CDI France",
+                 "https://www.linkedin.com/jobs/search/?keywords=compliance+officer+securite+financiere+AML&location=France&f_JT=F&sortBy=DD"),
+                ("AML/KYC Analyst — Luxembourg CDI",
+                 "https://www.linkedin.com/jobs/search/?keywords=AML+KYC+analyst+compliance&location=Luxembourg&f_JT=F&sortBy=DD"),
+                ("Chargé Conformité Fintech — CDI",
+                 "https://www.linkedin.com/jobs/search/?keywords=charge+conformite+fintech+LCB-FT&location=France&f_JT=F&sortBy=DD"),
+                ("Sanctions Analyst / Screening — CDI",
+                 "https://www.linkedin.com/jobs/search/?keywords=sanctions+analyst+screening+compliance&location=France&f_JT=F&sortBy=DD"),
+            ]
+        },
+        {
+            "name": "France Travail",
+            "icon": "🇫🇷",
+            "color": "#E63946",
+            "links": [
+                ("Analyste LCB-FT Sécurité Financière",
+                 "https://candidat.francetravail.fr/offres/recherche?motsCles=analyste+LCB-FT+s%C3%A9curit%C3%A9+financi%C3%A8re&typeContrat=CDI&lieux=75&sort=1"),
+                ("Compliance Officer AML",
+                 "https://candidat.francetravail.fr/offres/recherche?motsCles=compliance+officer+AML+conformit%C3%A9&typeContrat=CDI&lieux=75&sort=1"),
+                ("KYC / Due Diligence",
+                 "https://candidat.francetravail.fr/offres/recherche?motsCles=KYC+due+diligence+conformit%C3%A9&typeContrat=CDI&sort=1"),
+                ("Analyste Crédit Risques",
+                 "https://candidat.francetravail.fr/offres/recherche?motsCles=analyste+cr%C3%A9dit+risques+financi%C3%A8re&typeContrat=CDI&lieux=75&sort=1"),
+            ]
+        },
+        {
+            "name": "Welcome to the Jungle",
+            "icon": "🌿",
+            "color": "#41B89C",
+            "links": [
+                ("Compliance AML/LCB-FT CDI",
+                 "https://www.welcometothejungle.com/fr/jobs?query=compliance+AML+LCB-FT&refinementList%5Bcontract_type_names%5D%5B%5D=CDI&sortBy=publishedAt_desc"),
+                ("Sécurité Financière CDI",
+                 "https://www.welcometothejungle.com/fr/jobs?query=s%C3%A9curit%C3%A9+financi%C3%A8re&refinementList%5Bcontract_type_names%5D%5B%5D=CDI&sortBy=publishedAt_desc"),
+                ("Chargé Conformité Fintech",
+                 "https://www.welcometothejungle.com/fr/jobs?query=charg%C3%A9+conformit%C3%A9+fintech&refinementList%5Bcontract_type_names%5D%5B%5D=CDI&sortBy=publishedAt_desc"),
+            ]
+        },
+        {
+            "name": "APEC",
+            "icon": "📋",
+            "color": "#003F88",
+            "links": [
+                ("Conformité AML/LCB-FT Cadre",
+                 "https://www.apec.fr/candidat/recherche-emploi.html/emploi?motsCles=conformit%C3%A9+AML+LCB-FT&typeContrat=CDI&sortsBase=DATE_PUBLICATION&sortsOrder=DECREASE"),
+                ("Analyste Risques Financiers",
+                 "https://www.apec.fr/candidat/recherche-emploi.html/emploi?motsCles=analyste+risques+financiers&typeContrat=CDI&sortsBase=DATE_PUBLICATION&sortsOrder=DECREASE"),
+                ("Analyste Crédit Senior",
+                 "https://www.apec.fr/candidat/recherche-emploi.html/emploi?motsCles=analyste+cr%C3%A9dit+senior&typeContrat=CDI&sortsBase=DATE_PUBLICATION&sortsOrder=DECREASE"),
+            ]
+        },
+        {
+            "name": "Indeed France",
+            "icon": "🔍",
+            "color": "#2164F3",
+            "links": [
+                ("Analyste LCB-FT Paris CDI",
+                 "https://fr.indeed.com/jobs?q=analyste+LCB-FT+s%C3%A9curit%C3%A9+financi%C3%A8re&l=Paris&jt=fulltime&sort=date"),
+                ("Compliance Officer AML Paris",
+                 "https://fr.indeed.com/jobs?q=compliance+officer+AML&l=Paris&jt=fulltime&sort=date"),
+                ("Chargé Conformité Fintech",
+                 "https://fr.indeed.com/jobs?q=charg%C3%A9+conformit%C3%A9+fintech+LCB-FT&l=France&jt=fulltime&sort=date"),
+                ("KYC Analyst Île-de-France",
+                 "https://fr.indeed.com/jobs?q=KYC+analyst+conformit%C3%A9&l=%C3%8Ele-de-France&jt=fulltime&sort=date"),
+                ("Analyste Crédit Risques Paris",
+                 "https://fr.indeed.com/jobs?q=analyste+cr%C3%A9dit+risques&l=Paris&jt=fulltime&sort=date"),
+            ]
+        },
+        {
+            "name": "Luxembourg",
+            "icon": "🇱🇺",
+            "color": "#EF3340",
+            "links": [
+                ("Compliance/AML Officer — Jobs.lu",
+                 "https://www.jobs.lu/en/job-search/?search=compliance+AML+officer&sort=date&contract=permanent"),
+                ("KYC/AML Analyst Luxembourg",
+                 "https://www.jobs.lu/en/job-search/?search=KYC+AML+analyst&sort=date"),
+                ("Financial Crime — Luxembourg",
+                 "https://www.jobs.lu/en/job-search/?search=financial+crime+analyst&sort=date"),
+                ("AML Compliance — Moovijob",
+                 "https://www.moovijob.com/emploi?keywords=AML+conformite&country=lu&contract=cdi"),
+            ]
+        },
+    ]
+
+    for platform in platforms:
+        st.markdown(f"""
+        <div style='margin-bottom:8px;'>
+          <div style='font-size:0.88rem;font-weight:700;color:{platform["color"]};
+                      border-bottom:1px solid rgba(255,255,255,0.08);
+                      padding:5px 0 3px;margin-bottom:6px;'>
+            {platform["icon"]} {platform["name"]}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        for i, (title_l, url_l) in enumerate(platform["links"]):
+            with (col1 if i%2==0 else col2):
+                st.markdown(f"""
+                <div style="background:var(--navy-mid);border:1px solid rgba(255,255,255,0.06);
+                            border-left:3px solid {platform['color']};border-radius:0 7px 7px 0;
+                            padding:9px 13px;margin-bottom:8px;">
+                  <div style="font-size:0.83rem;color:#F5F0E8;margin-bottom:5px;">{title_l}</div>
+                  <a href="{url_l}" target="_blank"
+                     style="background:{platform['color']};color:white;padding:4px 12px;
+                            border-radius:4px;font-size:0.74rem;font-weight:600;
+                            text-decoration:none;display:inline-block;">
+                    Voir les offres →
                   </a>
                 </div>""", unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div style='background:var(--navy-mid);border:1px solid rgba(201,168,76,0.15);
-                border-radius:10px;padding:14px 20px;margin-top:16px;'>
-      <b style='color:#C9A84C;'>💡 {total} liens d'offres CDI disponibles</b>
-      <div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;'>
-    """ + "".join(
-        f'<span style="background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.25);'
-        f'border-radius:5px;padding:3px 10px;font-size:0.78rem;color:#E8C97A;">{kw}</span>'
-        for kw in ["LCB-FT","AML","KYC/KYB","PPE/SOE","Tracfin","Déclaration de soupçon",
-                   "ER · PDS","GAFI","ACPR","CDI","Pays sensibles","Due Diligence",
-                   "AMF","CAMS","Marchés financiers","ESG","Conformité bancaire"]
-    ) + "</div></div>", unsafe_allow_html=True)
-
+    # ── KEYWORDS REFERENCE ────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 🏷️ Tous les mots-clés de recherche — Sécurité Financière")
+    all_kws = [
+        "LCB-FT","AML/CFT","KYC","KYB","Due Diligence","PPE","SOE","Tracfin",
+        "Déclaration de soupçon","GAFI","ACPR","AMLD5","AMLD6","Examen Renforcé",
+        "Compliance","Conformité bancaire","Sécurité financière","Financial Crime",
+        "Sanctions","Embargos","OFAC","Screening","Gel des avoirs","PEP",
+        "AML Analyst","Compliance Officer","Chargé de conformité","Analyste LCB-FT",
+        "Risk Manager","Analyste crédit","Credit Analyst","Analyste risques",
+        "Fintech compliance","PSP compliance","Cartographie des risques",
+        "Beneficial owner","UBO","CDI","Asset Management","CIB","Corporate Banking",
+        "CAMS","AMF","Actimize","Siron","Jura","Bloomberg","Looker",
+    ]
+    st.markdown("""<div style='display:flex;flex-wrap:wrap;gap:5px;'>""" +
+        "".join(f'<span style="background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.2);'
+                f'border-radius:4px;padding:2px 9px;font-size:0.76rem;color:#E8C97A;">{k}</span>'
+                for k in all_kws) +
+        "</div>", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE 10 — ASSISTANT IA CARRIÈRE (18 prompts)
